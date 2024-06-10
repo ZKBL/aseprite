@@ -227,7 +227,13 @@
       <key command="ChangeBrush" shortcut="Space+H">
         <param name="change" value="flip-x" />
       </key>
+      <key command="ChangeBrush" shortcut="Space+X">
+        <param name="change" value="flip-x" />
+      </key>
       <key command="ChangeBrush" shortcut="Space+V">
+        <param name="change" value="flip-y" />
+      </key>
+      <key command="ChangeBrush" shortcut="Space+Y">
         <param name="change" value="flip-y" />
       </key>
       <key command="ChangeBrush" shortcut="Space+D">
@@ -1262,7 +1268,7 @@
         <param name="type" value="shading" />
       </item>
       <separator />
-      <item command="SetSameInk" text="@.same_in_all_tools" group="ink_options" />
+      <item command="SetSameInk" text="@general.same_in_all_tools" group="ink_options" />
     </menu>
 
   </menus>

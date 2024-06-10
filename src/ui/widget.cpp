@@ -1,5 +1,5 @@
 // Aseprite UI Library
-// Copyright (C) 2018-2023  Igara Studio S.A.
+// Copyright (C) 2018-2024  Igara Studio S.A.
 // Copyright (C) 2001-2018  David Capello
 //
 // This file is released under the terms of the MIT license.
@@ -144,7 +144,7 @@ void Widget::setTextf(const char *format, ...)
     va_list ap;
     va_start(ap, format);
     char buf[4096];
-    vsprintf(buf, format, ap);
+    std::vsnprintf(buf, sizeof(buf), format, ap);
     va_end(ap);
 
     setText(buf);
@@ -199,7 +199,9 @@ void Widget::setTheme(Theme* theme)
 void Widget::setStyle(Style* style)
 {
   assert_ui_thread();
-
+  ASSERT(style);
+  if (!style)
+    style = Theme::getDefaultStyle();
   m_style = style;
   m_border = m_theme->calcBorder(this, style);
   m_bgColor = m_theme->calcBgColor(this, style);

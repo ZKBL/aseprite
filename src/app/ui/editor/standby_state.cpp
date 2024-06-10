@@ -53,6 +53,7 @@
 #include "app/util/layer_utils.h"
 #include "app/util/new_image_from_mask.h"
 #include "app/util/readable_time.h"
+#include "app/util/tile_flags_utils.h"
 #include "base/pi.h"
 #include "base/vector2d.h"
 #include "doc/grid.h"
@@ -607,7 +608,12 @@ bool StandbyState::onUpdateStatusBar(Editor* editor)
             site.layer()->isTilemap() &&
             site.image()) {
           if (site.image()->bounds().contains(pt)) {
-            buf += fmt::format(" [{}]", site.image()->getPixel(pt.x, pt.y));
+            doc::tile_t t = site.image()->getPixel(pt.x, pt.y);
+            doc::tile_index ti = doc::tile_geti(t);
+            doc::tile_flags tf = doc::tile_getf(t);
+            std::string str;
+            build_tile_flags_string(tf, str);
+            buf += fmt::format(" [{}{}]", ti, str);
           }
         }
       }
@@ -690,6 +696,9 @@ bool StandbyState::checkStartDrawingStraightLine(Editor* editor,
                           pointer ? pointer->type(): PointerType::Unknown,
                           pointer ? pointer->pressure(): 0.0f));
     if (drawingState) {
+      // Disable stabilizer so that it does not affect the line preview
+      drawingState->disableMouseStabilizer();
+      
       drawingState->sendMovementToToolLoop(
         tools::Pointer(
           pointer ? pointer->point(): editor->screenToEditor(editor->mousePosInDisplay()),

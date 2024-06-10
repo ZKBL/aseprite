@@ -1,5 +1,5 @@
 // Aseprite
-// Copyright (C) 2020-2023  Igara Studio S.A.
+// Copyright (C) 2020-2024  Igara Studio S.A.
 //
 // This program is distributed under the terms of
 // the End-User License Agreement for Aseprite.
@@ -10,10 +10,14 @@
 
 #include "app/ui/dynamics_popup.h"
 
+#include "app/app.h"
+#include "app/i18n/strings.h"
+#include "app/tools/tool_box.h"
 #include "app/ui/dithering_selector.h"
 #include "app/ui/skin/skin_theme.h"
 #include "os/font.h"
 #include "os/surface.h"
+#include "ui/fit_bounds.h"
 #include "ui/message.h"
 #include "ui/paint_event.h"
 #include "ui/scale.h"
@@ -162,7 +166,9 @@ private:
           break;
 
         auto mouseMsg = static_cast<MouseMessage*>(msg);
-        const gfx::Rect rc = bounds();
+        gfx::Rect rc = bounds();
+        rc.shrink(border());
+        rc.shrink(gfx::Border(3, 0, 3, 1) * guiscale());
         float u = (mouseMsg->position().x - rc.x) / float(rc.w);
         u = std::clamp(u, 0.0f, 1.0f);
         switch (capture) {
@@ -273,7 +279,19 @@ DynamicsPopup::DynamicsPopup(Delegate* delegate)
         setHotRegion(m_hotRegion);
       }
     });
-
+  m_dynamics->sameInAllTools()->setSelected(
+    Preferences::instance().shared.shareDynamics());
+  m_dynamics->sameInAllTools()->Click.connect(
+    [this]{
+      // if sameInAllTools is true here, this means:
+      // "Transition false to true of 'Same in all tools' and the
+      //  current parameters in the DynamicsPopup windows are the
+      //  old one, i.e non-shared parameters."
+      bool sameInAllTools = m_dynamics->sameInAllTools()->isSelected();
+      // Save the old dynamics options:
+      saveDynamicsPref(!sameInAllTools);
+      Preferences::instance().shared.shareDynamics(sameInAllTools);
+    });
   m_dynamics->gradientPlaceholder()->addChild(m_ditheringSel);
   m_dynamics->pressurePlaceholder()->addChild(m_pressureThreshold = new ThresholdSlider);
   m_dynamics->velocityPlaceholder()->addChild(m_velocityThreshold = new ThresholdSlider);
@@ -287,43 +305,76 @@ void DynamicsPopup::setOptionsGridVisibility(bool state)
     expandWindow(sizeHint());
 }
 
-int DynamicsPopup::ditheringIndex() const {
+std::string DynamicsPopup::ditheringMatrixName() const
+{
   if (m_ditheringSel)
-    return m_ditheringSel->getSelectedItemIndex();
-  return 0;
+    return m_ditheringSel->getItemText(
+      m_ditheringSel->getSelectedItemIndex());
+  return std::string();
 }
 
-void DynamicsPopup::loadDynamicPref(ToolPreferences* toolPref) {
-  if (toolPref) {
-    auto& dynaPref = toolPref->dynamics;
-    m_dynamics->stabilizer()->setSelected(dynaPref.stabilizer());
-    m_stabilizerFactorBackup = dynaPref.stabilizerFactor();
-    m_dynamics->stabilizerFactor()->setValue(
-      dynaPref.stabilizer() ? m_stabilizerFactorBackup : 0);
-    m_dynamics->minSize()->setValue(dynaPref.minSize());
-    m_dynamics->minAngle()->setValue(dynaPref.minAngle());
-    m_pressureThreshold->minThreshold(dynaPref.minPressureThreshold());
-    m_pressureThreshold->maxThreshold(dynaPref.maxPressureThreshold());
-    m_velocityThreshold->minThreshold(dynaPref.minVelocityThreshold());
-    m_velocityThreshold->maxThreshold(dynaPref.maxVelocityThreshold());
-    m_fromTo = dynaPref.colorFromTo();
+void DynamicsPopup::loadDynamicsPref(bool sameInAllTools)
+{
+  m_dynamics->sameInAllTools()->setSelected(sameInAllTools);
+  tools::Tool* tool = nullptr;
+  if (!sameInAllTools)
+    tool = App::instance()->activeTool();
 
-    setCheck(SIZE_WITH_PRESSURE,
-             dynaPref.size() == tools::DynamicSensor::Pressure);
-    setCheck(SIZE_WITH_VELOCITY,
-             dynaPref.size() == tools::DynamicSensor::Velocity);
-    setCheck(ANGLE_WITH_PRESSURE,
-             dynaPref.angle() == tools::DynamicSensor::Pressure);
-    setCheck(ANGLE_WITH_VELOCITY,
-             dynaPref.angle() == tools::DynamicSensor::Velocity);
-    setCheck(GRADIENT_WITH_PRESSURE,
-             dynaPref.gradient() == tools::DynamicSensor::Pressure);
-    setCheck(GRADIENT_WITH_VELOCITY,
-             dynaPref.gradient() == tools::DynamicSensor::Velocity);
+  auto& dynaPref = Preferences::instance().tool(tool).dynamics;
+  m_dynamics->stabilizer()->setSelected(dynaPref.stabilizer());
+  m_stabilizerFactorBackup = dynaPref.stabilizerFactor();
+  m_dynamics->stabilizerFactor()->setValue(
+    dynaPref.stabilizer() ? m_stabilizerFactorBackup : 0);
+  m_dynamics->minSize()->setValue(dynaPref.minSize());
+  m_dynamics->minAngle()->setValue(dynaPref.minAngle());
+  m_pressureThreshold->minThreshold(dynaPref.minPressureThreshold());
+  m_pressureThreshold->maxThreshold(dynaPref.maxPressureThreshold());
+  m_velocityThreshold->minThreshold(dynaPref.minVelocityThreshold());
+  m_velocityThreshold->maxThreshold(dynaPref.maxVelocityThreshold());
+  m_fromTo = dynaPref.colorFromTo();
 
-    if (m_ditheringSel)
-      m_ditheringSel->setSelectedItemIndex(dynaPref.matrixIndex());
-  }
+  setCheck(SIZE_WITH_PRESSURE,
+           dynaPref.size() == tools::DynamicSensor::Pressure);
+  setCheck(SIZE_WITH_VELOCITY,
+           dynaPref.size() == tools::DynamicSensor::Velocity);
+  setCheck(ANGLE_WITH_PRESSURE,
+           dynaPref.angle() == tools::DynamicSensor::Pressure);
+  setCheck(ANGLE_WITH_VELOCITY,
+           dynaPref.angle() == tools::DynamicSensor::Velocity);
+  setCheck(GRADIENT_WITH_PRESSURE,
+           dynaPref.gradient() == tools::DynamicSensor::Pressure);
+  setCheck(GRADIENT_WITH_VELOCITY,
+           dynaPref.gradient() == tools::DynamicSensor::Velocity);
+
+  if (m_ditheringSel)
+    m_ditheringSel->setSelectedItemByName(dynaPref.matrixName());
+}
+
+void DynamicsPopup::saveDynamicsPref(bool sameInAllTools)
+{
+  tools::DynamicsOptions dyna = getDynamics();
+  tools::Tool* tool = nullptr;
+  if (!sameInAllTools)
+    tool = App::instance()->activeTool();
+
+  auto dynaPref = &Preferences::instance().tool(tool).dynamics;
+  dynaPref->stabilizer(dyna.stabilizer);
+  dynaPref->stabilizerFactor(m_stabilizerFactorBackup);
+  dynaPref->minSize(dyna.minSize);
+  dynaPref->minAngle(dyna.minAngle);
+  dynaPref->minPressureThreshold(dyna.minPressureThreshold);
+  dynaPref->maxPressureThreshold(dyna.maxPressureThreshold);
+  dynaPref->minVelocityThreshold(dyna.minVelocityThreshold);
+  dynaPref->maxVelocityThreshold(dyna.maxVelocityThreshold);
+  dynaPref->colorFromTo(m_fromTo);
+
+  dynaPref->size(dyna.size);
+  dynaPref->angle(dyna.angle);
+  dynaPref->gradient(dyna.gradient);
+
+  if (m_ditheringSel)
+    dynaPref->matrixName(m_ditheringSel->getItemText(
+      m_ditheringSel->getSelectedItemIndex()));
 }
 
 tools::DynamicsOptions DynamicsPopup::getDynamics() const
@@ -374,36 +425,12 @@ bool DynamicsPopup::isCheck(int i) const
           ->icon() == theme->parts.dropPixelsOk());
 }
 
-void DynamicsPopup::onValuesChange(ButtonSet::Item* item)
+// Update Pressure/Velocity/Gradient popup's variables visibility
+// according ButtonSet checks.
+// Used after a value change (onValuesChange) and when the popup is
+// displayed (on ContextBar::DynamicsField::switchPopup()).
+void DynamicsPopup::refreshVisibility()
 {
-  auto theme = SkinTheme::get(this);
-  const skin::SkinPartPtr& ok = theme->parts.dropPixelsOk();
-  const int i = (item ? m_dynamics->values()->getItemIndex(item): -1);
-
-  // Switch item off
-  if (item && item->icon().get() == ok.get()) {
-    item->setIcon(nullptr);
-  }
-  else {
-    switch (i) {
-      case SIZE_WITH_PRESSURE:
-      case SIZE_WITH_VELOCITY:
-        setCheck(SIZE_WITH_PRESSURE, i == SIZE_WITH_PRESSURE);
-        setCheck(SIZE_WITH_VELOCITY, i == SIZE_WITH_VELOCITY);
-        break;
-      case ANGLE_WITH_PRESSURE:
-      case ANGLE_WITH_VELOCITY:
-        setCheck(ANGLE_WITH_PRESSURE, i == ANGLE_WITH_PRESSURE);
-        setCheck(ANGLE_WITH_VELOCITY, i == ANGLE_WITH_VELOCITY);
-        break;
-      case GRADIENT_WITH_PRESSURE:
-      case GRADIENT_WITH_VELOCITY:
-        setCheck(GRADIENT_WITH_PRESSURE, i == GRADIENT_WITH_PRESSURE);
-        setCheck(GRADIENT_WITH_VELOCITY, i == GRADIENT_WITH_VELOCITY);
-        break;
-    }
-  }
-
   const bool hasPressure = (isCheck(SIZE_WITH_PRESSURE) ||
                             isCheck(ANGLE_WITH_PRESSURE) ||
                             isCheck(GRADIENT_WITH_PRESSURE));
@@ -457,6 +484,48 @@ void DynamicsPopup::onValuesChange(ButtonSet::Item* item)
 
   m_hotRegion |= gfx::Region(boundsOnScreen());
   setHotRegion(m_hotRegion);
+
+  // Inform to the delegate that the dynamics have changed (so the
+  // delegate can update the UI to show if the dynamics are on/off).
+  m_delegate->onDynamicsChange(getDynamics());
+}
+
+bool DynamicsPopup::sharedSettings() const
+{
+  return m_dynamics->sameInAllTools()->isSelected();
+}
+
+void DynamicsPopup::onValuesChange(ButtonSet::Item* item)
+{
+  auto theme = SkinTheme::get(this);
+  const skin::SkinPartPtr& ok = theme->parts.dropPixelsOk();
+  const int i = (item ? m_dynamics->values()->getItemIndex(item): -1);
+
+  // Switch item off
+  if (item && item->icon().get() == ok.get()) {
+    item->setIcon(nullptr);
+  }
+  else {
+    switch (i) {
+      case SIZE_WITH_PRESSURE:
+      case SIZE_WITH_VELOCITY:
+        setCheck(SIZE_WITH_PRESSURE, i == SIZE_WITH_PRESSURE);
+        setCheck(SIZE_WITH_VELOCITY, i == SIZE_WITH_VELOCITY);
+        break;
+      case ANGLE_WITH_PRESSURE:
+      case ANGLE_WITH_VELOCITY:
+        setCheck(ANGLE_WITH_PRESSURE, i == ANGLE_WITH_PRESSURE);
+        setCheck(ANGLE_WITH_VELOCITY, i == ANGLE_WITH_VELOCITY);
+        break;
+      case GRADIENT_WITH_PRESSURE:
+      case GRADIENT_WITH_VELOCITY:
+        setCheck(GRADIENT_WITH_PRESSURE, i == GRADIENT_WITH_PRESSURE);
+        setCheck(GRADIENT_WITH_VELOCITY, i == GRADIENT_WITH_VELOCITY);
+        break;
+    }
+  }
+
+  refreshVisibility();
 }
 
 void DynamicsPopup::updateFromToText()
